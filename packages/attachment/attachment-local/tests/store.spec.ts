@@ -10,6 +10,7 @@ import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import { readImageFile, saveImageFile } from '../src/store.ts'
 
 const fsControl = vi.hoisted(() => ({
+  deniedChmodPaths: new Set<string>(),
   readSignals: [] as AbortSignal[],
   syncedDirectories: [] as string[],
 }))
@@ -18,6 +19,12 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
+    async chmod(...args: Parameters<typeof actual.chmod>): ReturnType<typeof actual.chmod> {
+      if (fsControl.deniedChmodPaths.has(String(args[0]))) {
+        throw Object.assign(new Error('read-only filesystem'), { code: 'EROFS' })
+      }
+      return actual.chmod(...args)
+    },
     readFile(...args: Parameters<typeof actual.readFile>): ReturnType<typeof actual.readFile> {
       const options = args[1]
       if (typeof options === 'object' && options !== null) {
@@ -67,10 +74,36 @@ function parentChainToRoot(path: string): string[] {
 }
 
 afterEach(async () => {
+  fsControl.deniedChmodPaths.clear()
   await Promise.all(roots.splice(0).map(path => rm(path, { recursive: true, force: true })))
 })
 
 describe('local attachment store', () => {
+  it('stays below an explicitly provisioned durable storage boundary', async () => {
+    const storageRoot = await root()
+    const boundary = dirname(storageRoot)
+    const readOnlyParent = dirname(boundary)
+    await mkdir(boundary, { recursive: true })
+    fsControl.deniedChmodPaths.add(readOnlyParent)
+
+    const ref = await saveImageFile(
+      storageRoot,
+      { data: PNG, mediaType: 'image/png' },
+      LIMITS,
+      { durableBoundary: boundary },
+    )
+
+    await expect(readImageFile(storageRoot, ref)).resolves.toEqual({ ref, data: PNG })
+  })
+
+  it('maps storage-boundary preparation failures to a stable write error', async () => {
+    const storageRoot = await root()
+    fsControl.deniedChmodPaths.add(dirname(dirname(storageRoot)))
+
+    await expect(saveImageFile(storageRoot, { data: PNG, mediaType: 'image/png' }, LIMITS))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_WRITE_FAILED' })
+  })
+
   it.skipIf(process.platform === 'win32')('syncs every object ancestor up to the durable boundary before returning', async () => {
     const storageRoot = await root()
     const base = join(storageRoot, '..', '..')

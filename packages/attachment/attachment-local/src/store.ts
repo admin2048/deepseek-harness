@@ -19,6 +19,12 @@ import { detectImage, probeImage } from './image.ts'
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
 
+/** Deployment-owned durability facts for one attachment save. */
+export interface SaveImageFileOptions {
+  /** Existing durable ancestor below which this process may create attachment directories. */
+  durableBoundary?: string
+}
+
 function digest(data: Uint8Array): string {
   return createHash('sha256').update(data).digest('hex')
 }
@@ -131,24 +137,32 @@ async function ensureDurableHome(path: string): Promise<string> {
  * @param root - absolute `DSH_HOME/attachments/v1` root.
  * @param input - encoded bytes and declared metadata.
  * @param limits - resolved storage policy.
+ * @param options - optional deployment-owned durability facts.
  * @returns durable content-addressed reference.
  */
-export async function saveImageFile(root: string, input: SaveImageAttachment, limits: ImageAttachmentLimits): Promise<ImageAttachmentRef> {
+export async function saveImageFile(
+  root: string,
+  input: SaveImageAttachment,
+  limits: ImageAttachmentLimits,
+  options: SaveImageFileOptions = {},
+): Promise<ImageAttachmentRef> {
   if (input.data.byteLength > limits.maxImageBytes) throw new AttachmentError('Image exceeds the configured byte limit.', 'IMAGE_TOO_LARGE')
   const metadata = await inspectMetadata(input.data, input.mediaType, limits)
   const sha256 = digest(input.data)
   const bucket = join(root, 'objects', sha256.slice(0, 2))
   const staging = join(root, 'tmp')
-  // Establish DSH_HOME itself against the filesystem root once per process.
-  // Every process performs that proof independently, so observing a directory
-  // another process created can never be mistaken for durable publication.
-  const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
-  await ensureDurableDirectory(bucket, boundary)
-  await ensureDurableDirectory(staging, boundary)
   const temporary = join(staging, randomUUID())
   const target = objectPath(root, sha256)
   let handle
   try {
+    // Without a deployment-owned boundary, every process proves DSH_HOME
+    // independently so another process's unsynced mkdir cannot be mistaken for
+    // durable publication.
+    const boundary = options.durableBoundary === undefined
+      ? await ensureDurableHome(dirname(dirname(resolve(root))))
+      : resolve(options.durableBoundary)
+    await ensureDurableDirectory(bucket, boundary)
+    await ensureDurableDirectory(staging, boundary)
     handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
     await handle.writeFile(input.data)
     await handle.sync()

@@ -31,6 +31,8 @@ export const DEFAULT_MAX_IMAGE_DIMENSION = 2000
 export interface Config {
   /** Explicit harness home; omitted follows `DSH_HOME`, then `~/.dsh`. */
   dshHome?: string
+  /** Existing durable directory used as the versioned attachment store parent. */
+  storageRoot?: string
   /** Maximum encoded bytes accepted for one image. */
   maxImageBytes?: number
   /** Maximum image count accepted in one submitted message. */
@@ -47,6 +49,7 @@ export interface Config {
 export class LocalAttachmentStore extends AttachmentStore {
   static Config: z<Config> = z.object({
     dshHome: z.string(),
+    storageRoot: z.string(),
     maxImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_IMAGE_BYTES),
     maxImagesPerMessage: z.number().step(1).min(1).default(DEFAULT_MAX_IMAGES_PER_MESSAGE),
     maxMessageImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_MESSAGE_IMAGE_BYTES),
@@ -56,11 +59,16 @@ export class LocalAttachmentStore extends AttachmentStore {
 
   /** Absolute versioned storage root. */
   readonly root: string
+  /** Deployment-provisioned ancestor that the store does not create or sync above. */
+  readonly durableBoundary: string | undefined
   readonly imageLimits: ImageAttachmentLimits
 
   constructor(ctx: Context, config: Config) {
     super(ctx)
-    this.root = resolve(join(resolveDshHome(config.dshHome), 'attachments', 'v1'))
+    this.durableBoundary = config.storageRoot === undefined ? undefined : resolve(config.storageRoot)
+    this.root = this.durableBoundary === undefined
+      ? resolve(join(resolveDshHome(config.dshHome), 'attachments', 'v1'))
+      : join(this.durableBoundary, 'v1')
     this.imageLimits = Object.freeze({
       maxImageBytes: config.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES,
       maxImagesPerMessage: config.maxImagesPerMessage ?? DEFAULT_MAX_IMAGES_PER_MESSAGE,
@@ -76,7 +84,9 @@ export class LocalAttachmentStore extends AttachmentStore {
   }
 
   async saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {
-    return saveImageFile(this.root, input, this.imageLimits)
+    return this.durableBoundary === undefined
+      ? saveImageFile(this.root, input, this.imageLimits)
+      : saveImageFile(this.root, input, this.imageLimits, { durableBoundary: this.durableBoundary })
   }
 
   async readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment> {

@@ -41,6 +41,29 @@ describe('local attachment service', () => {
     }
   })
 
+  it('keeps an explicitly provisioned storage root independent from DSH_HOME', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-home-'))
+    const storageRoot = await mkdtemp(join(tmpdir(), 'dsh-attachment-storage-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome, storageRoot })
+      const data = Uint8Array.from(Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ))
+
+      const ref = await service.saveImage({ data, mediaType: 'image/png' })
+
+      expect(service.root).toBe(join(storageRoot, 'v1'))
+      expect(existsSync(join(dshHome, 'attachments'))).toBe(false)
+      await expect(service.readImage(ref)).resolves.toEqual({ ref, data })
+    } finally {
+      await Promise.all([
+        rm(dshHome, { recursive: true, force: true }),
+        rm(storageRoot, { recursive: true, force: true }),
+      ])
+    }
+  })
+
   it('validates without persisting: a rejected image leaves no storage root behind', async () => {
     const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-validate-'))
     try {

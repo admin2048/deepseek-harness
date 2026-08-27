@@ -329,6 +329,8 @@ export interface Config {
 export interface Config {
   /** Explicit harness home; omitted follows `DSH_HOME`, then `~/.dsh`. */
   dshHome?: string
+  /** Existing durable directory used as the versioned attachment store parent. */
+  storageRoot?: string
   /** Maximum encoded bytes accepted for one image. */
   maxImageBytes?: number
   /** Maximum image count accepted in one submitted message. */
