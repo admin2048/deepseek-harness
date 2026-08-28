@@ -21,7 +21,7 @@ YQZ 运维助手复用 DSH Base/Web 的图片附件能力，并在 `ReadonlyRoot
 - [x] YQZ 组合测试验证 Profile 将 `attachment-local` 指向现有附件挂载；真实部署保存留在发布后的三重验收。
 - [x] DSH 聚焦测试、类型检查、文档检查和差异检查通过。
 - [x] YQZ 聚焦测试、类型检查和部署合同检查通过。
-- [ ] 获得发布授权后，仅重建 `dsh-web` 并通过真实页面图片发送、Session 事件和附件对象三重验收。
+- [x] 获得发布授权后，仅重建 `dsh-web` 并通过真实页面图片发送、Session 事件和附件对象三重验收。
 
 ## 阶段状态
 
@@ -32,4 +32,11 @@ YQZ 运维助手复用 DSH Base/Web 的图片附件能力，并在 `ReadonlyRoot
 - [x] YQZ 接线与组合测试。
 - [x] 文档与 Agent Note。
 - [x] 本地验证。
-- [ ] 受管发布与真实验收。
+- [x] 受管发布与真实验收。
+
+## 生产验收
+
+- YQZ 发布源提交 `d3b3ea61d747e4405070daeaa0350fbf55b70bfc` 固定本仓库提交 `8801edfa9bff9641de1c5c15ff136667c6c287d9`，生产镜像为 `sha256:b3f9f4821bcfb3a5d2309bd2a855b01abc0a11cc179e6276c9c7f87686c14893`；受管控制面 `check → apply → check` 通过，只重建 `dsh-web`，未运行 `code-sync`。
+- 真实 DSH Web 图片会话 `session-dd2de528-61eb-4374-a46c-567ca29486b7` 收到模型回复“收到图片”，页面无 `agent-busy` 或附件错误。
+- 图片对象 SHA-256 为 `42af5ffd5b2f617af52c888d6e90aa6f617b41e0b3073760c3feb550f28532f5`，Session 仅记录两条 `sha256:` 引用与元数据，图片 base64 和宿主附件路径命中为 `0`。
+- 发布后容器保持只读根、非 root 用户、`CapDrop=ALL` 和零重启，固定 Docker acceptance 通过，HTTP 返回 `200`。
